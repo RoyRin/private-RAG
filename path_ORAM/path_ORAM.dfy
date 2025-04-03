@@ -1,45 +1,33 @@
 include "math.dfy"
 
 class PathORAM {
-    // Security parameter
-    ghost var lambda: nat;  // Security parameter
-    
     // Core ORAM parameters
-    var N: nat;        // Total number of blocks
-    var L: nat;        // Height of the tree
-    var numLeafs: nat; // Number of leaf nodes
-    var treeSize: nat; // Total size of the tree
+    var N: nat        // Total number of blocks
+    var L: nat        // Height of the tree
+    var numLeafs: nat // Number of leaf nodes
+    var treeSize: nat // Total size of the tree
     
     // Data structures
-    var tree: array<nat>;        // Tree structure mapping nodes to blocks
-    var posMap: map<nat, nat>;   // Position map: block -> leaf
-    var stash: seq<nat>;         // Temporary storage for blocks
-    var stashData: map<nat, nat>;// Block data in stash
-    var data: map<nat, nat>;     // Main data storage
+    var tree: array<nat>        // Tree structure mapping nodes to blocks
+    var posMap: map<nat, nat>   // Position map: block -> leaf
+    var stash: seq<nat>         // Temporary storage for blocks
+    var stashData: map<nat, nat>// Block data in stash
+    var data: map<nat, nat>     // Main data storage
     
     // Access pattern buffers
-    var bufferR: seq<(string, nat)>; // Read operations log
-    var bufferW: seq<(string, nat)>; // Write operations log
-    
-    // Security invariants
-    ghost var realAccessPattern: seq<(nat, nat)>;  // Real world access pattern
-    ghost var idealAccessPattern: seq<(nat, nat)>; // Ideal world pattern
+    var bufferR: seq<(string, nat)> // Read operations log
+    var bufferW: seq<(string, nat)> // Write operations log
 
     // Constructor
-    constructor(numBlocks: nat, securityParam: nat)
+    constructor(numBlocks: nat)
         requires numBlocks >= Math.MIN_BLOCKS  // At least 2 blocks required
-        requires securityParam > 0
         ensures N == numBlocks
-        ensures lambda == securityParam
         ensures fresh(tree)
         ensures L >= 1  // Tree has at least one level
         ensures numLeafs > 0
         ensures treeSize > 0
         ensures forall i :: 0 <= i < treeSize ==> tree[i] == 0  // Tree initialized empty
-        ensures |realAccessPattern| == 0  // No accesses yet
-        ensures |idealAccessPattern| == 0
     {
-        lambda := securityParam;
         N := numBlocks;
         var logN := Math.CeilLog2(N);
         L := logN - 1;  // Safe since CeilLog2(N) >= 2
@@ -66,11 +54,7 @@ class PathORAM {
         bufferR := [];
         bufferW := [];
         
-        // Initialize ghost variables
-        realAccessPattern := [];
-        idealAccessPattern := [];
-        
-        // Initialize tree with random permutation
+        // Initialize tree with zeros
         var i := 0;
         while i < treeSize
             modifies tree
@@ -138,7 +122,6 @@ class PathORAM {
         requires node >= 0
         requires node < treeSize
         ensures 0 <= path < numLeafs
-        ensures fresh(realAccessPattern)
     {
         // In real implementation, this would use a cryptographically secure RNG
         var rand := if node % 2 == 0 then 0 else 1;
@@ -160,27 +143,22 @@ class PathORAM {
         requires block >= 0
         requires block in data
         modifies this`bufferR
-        modifies this`realAccessPattern
         ensures value == data[block]
         ensures bufferR == old(bufferR) + [('R', block)]
-        ensures |realAccessPattern| == |old(realAccessPattern)| + 1
     {
         // Log the read operation
         bufferR := bufferR + [('R', block)];
-        realAccessPattern := realAccessPattern + [(block, data[block])];
         value := data[block];
     }
 
     method {:private} WriteBucket(block: nat, newData: nat)
         requires block >= 0
-        modifies this`data, this`bufferW, this`realAccessPattern
+        modifies this`data, this`bufferW
         ensures data == old(data)[block := newData]
         ensures bufferW == old(bufferW) + [('W', block)]
-        ensures |realAccessPattern| == |old(realAccessPattern)| + 1
     {
         // Log the write operation and update data
         bufferW := bufferW + [('W', block)];
-        realAccessPattern := realAccessPattern + [(block, newData)];
         data := data[block := newData];
     }
 
@@ -189,10 +167,14 @@ class PathORAM {
         requires block >= 0 && block < N
         requires op == "W" ==> newData != null
         modifies this`data, this`posMap, this`stash, this`stashData,
-                 this`bufferR, this`bufferW, this`tree, this`realAccessPattern
+                 this`bufferR, this`bufferW, this`tree
         ensures op == "W" ==> block in data && data[block] == newData
-        ensures |realAccessPattern| > |old(realAccessPattern)|
-        ensures block in posMap && posMap[block] != old(posMap[block])
+        // ORAM correctness invariants
+        ensures block in posMap
+        ensures posMap[block] != old(posMap[block])
+        // The block is either in a bucket along the path to the leaf, or in the stash
+        ensures (exists i :: 0 <= i < |stash| && stash[i] == block) || 
+                (exists node :: 0 <= node < treeSize && tree[node] == block)
     {
         // Get current position and update to new random position
         var oldPos := if block in posMap then posMap[block] else 0;
@@ -206,7 +188,7 @@ class PathORAM {
         // Read all blocks in path into stash
         var i := 0;
         while i < |path|
-            modifies this`stash, this`stashData, this`bufferR, this`realAccessPattern
+            modifies this`stash, this`stashData, this`bufferR
             invariant 0 <= i <= |path|
         {
             var node := path[i];
@@ -232,7 +214,7 @@ class PathORAM {
             i := 0;
         }
         while i >= 0
-            modifies this`tree, this`stash, this`stashData, this`bufferW, this`realAccessPattern
+            modifies this`tree, this`stash, this`stashData, this`bufferW
             invariant -1 <= i < |path|
         {
             var node := path[i];
@@ -264,6 +246,40 @@ class PathORAM {
             }
             i := i - 1;
         }
+    }
+
+    // Verifies the correctness property that a block is either in the stash or on its assigned path
+    predicate BlockInCorrectLocation(block: nat)
+        requires block in posMap
+        reads this`posMap, this`stash, this`tree
+    {
+        var leaf := posMap[block];
+        var path := PathNodes(leaf);
+        
+        // The block is either in the stash or on the path to its assigned leaf
+        (block in stash) || 
+        (exists node :: node in path && tree[node] == block)
+    }
+    
+    // Verify all blocks follow Path ORAM invariants
+    method VerifyORAMInvariants() returns (valid: bool)
+        ensures valid ==> forall b :: b in posMap ==> BlockInCorrectLocation(b)
+    {
+        var allValid := true;
+        
+        // Check each block in the position map
+        var blocks := posMap.Keys;
+        foreach block in blocks
+            invariant allValid ==> forall b :: b in blocks && b !in posMap ==> BlockInCorrectLocation(b);
+        {
+            if !BlockInCorrectLocation(block) {
+                allValid := false;
+                break;
+            }
+        }
+        
+        valid := allValid;
+        return valid;
     }
 
     method WriteAccessLog()

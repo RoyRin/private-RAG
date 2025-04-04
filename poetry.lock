@@ -246,6 +246,17 @@ traitlets = ">=4"
 test = ["pytest"]
 
 [[package]]
+name = "dafnyruntimepython"
+version = "4.10.0"
+description = "Dafny runtime for Python"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "DafnyRuntimePython-4.10.0-py3-none-any.whl", hash = "sha256:fd5ebb57194e242121ef43cff255d81585a5b9e7b825b5414e3432cd79b7a6ed"},
+    {file = "dafnyruntimepython-4.10.0.tar.gz", hash = "sha256:8860258f4aca355cf35f837d25b8a534e97ea5989ff5dcd809f9fef4feaeb364"},
+]
+
+[[package]]
 name = "debugpy"
 version = "1.8.13"
 description = "An implementation of the Debug Adapter Protocol for Python"
@@ -1077,4 +1088,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "8b975022be8e7fa81cd417e244edc8be3c0aef54f01b6fea41351496f9d0602d"
+content-hash = "2c680507ae560d28a5e9d1356e65760348375b0b720379a5579222ee342bd964"

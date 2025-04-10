@@ -1,0 +1,6 @@
+[submodule "Dafny-VMC"]
+	path = Dafny-VMC
+	url = git@github.com:dafny-lang/Dafny-VMC.git
+[submodule "compass"]
+	path = compass
+	url = git@github.com:Clive2312/compass.git

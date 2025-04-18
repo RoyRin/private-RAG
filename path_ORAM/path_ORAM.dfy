@@ -1,54 +1,61 @@
-include "tree.dfy"
+include "server.dfy"
 include "math.dfy"
 
 // Minimum size requirement for ORAM to be secure
 const MIN_BLOCKS: nat := 2
+// Option type
+datatype option<T> = Some(value: T) | None
+
 
 class PathORAM {
     // Core ORAM parameters
-    var N: nat        // Total number of blocks
-    var Z: nat        // Bucket size (i.e., how many blocks in each tree node)
-    var L: nat        // Height of the tree
-    var numLeafs: nat // Number of leaf nodes
-    var treeSize: nat // Total size of the tree
+    var N: nat          // Total number of blocks
+    var Z: nat          // Bucket size (i.e., how many blocks in each tree node)
+    var L: nat          // Height of the tree
+    var numLeaves: nat  // Number of leaves
+    var treeSize: nat   // Total size of the tree
     
     // Data structures
-    var tree: Tree             // Tree structure on server storing buckets
+    var tree: Database         // Database on server storing buckets in tree structure
     var posMap: array<nat>     // Position map: block index -> leaf bucket index
-    var stash: map<nat, data>  // Temporary storage for blocks (maps block address to block data)
+    var stash: map<nat, string>  // Temporary client storage for blocks (maps block address to block data)
 
     // Constructor
     constructor(numBlocks: nat, bucketSize: nat)
         requires numBlocks >= MIN_BLOCKS  // At least 2 blocks required
+        requires bucketSize >= 1
         ensures N == numBlocks
         ensures fresh(tree)
         ensures L >= 1  // Tree has at least one level
-        ensures numLeafs > 0
-        ensures treeSize > 0
+        ensures numLeaves >= 1
+        ensures treeSize >= 1
         ensures posMap.Length == N
     {
         N := numBlocks;
         Z := bucketSize;
-        tree := new Tree(0, 0);  // (Dafny requires an initialization before "new;")
+        tree := new Database(1, 1);  // (Dafny requires an initialization before "new;")
 
         new;  // (See "Two-phase constructors" in the Dafny documentation for explanation)
 
         L := Math.CeilLog2(N);
-        numLeafs := Math.Pow2(L);
-        treeSize := 2 * numLeafs - 1;
+        numLeaves := Math.Pow2(L);
+        treeSize := 2 * numLeaves - 1;
         
         // Initialize data structures
-        tree := new Tree(treeSize, Z);
+        tree := new Database(treeSize, Z);
         posMap := new nat[N]; // TODO
         stash := map[];
     }
 
 
-    // Select the index of a leaf node uniformly at random
+    // Select the index of a leaf node nondeterministically
+    // (Ideally this would be uniformly at random, but the implementation below doesn't do this)
     method {:private} RandomLeaf() returns (leaf: nat)
+        requires treeSize >= 1
         ensures IsLeaf(leaf)
     {
-        // TODO
+        assert IsLeaf(treeSize-1);
+        leaf :| IsLeaf(leaf);
     }
 
     // Returns sequence of indices of the nodes from the root to the input node
@@ -65,19 +72,20 @@ class PathORAM {
     {
         LemmaLeafCorrectPathLength(node);
         // assert IsLeaf(node) ==> Math.FloorLog2(node+1) == L;
-        if (node == 0) then [0]
+        if node == 0 then [0]
         else PathNodes((node - 1) / 2) + [node]
     }
 
     // This is the Access function (Figure 1) from the Path ORAM paper
     // We refer to the line numbers from the paper in the comments here
-    method Access(op: string, addr: nat, newData: data) returns (data: data)
+    method Access(op: string, addr: nat, newData: option<string>) returns (data: option<string>)
         requires op == "R" || op == "W"
-        requires addr >= 0 && addr < N
+        requires 0 <= addr < N
         requires posMap.Length == N
         requires forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
-        requires op == "W" ==> newData != Dummy
-        modifies this.posMap, this`stash, this.tree, this.tree`bufferR
+        requires op == "R" ==> newData.None?
+        requires op == "W" ==> newData.Some?
+        modifies this.posMap, this`stash, this.tree, this.tree`accessLog
         // ensures posMap.Length == N
         // ensures forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
         // ensures op == "W" ==> block in data && data[block] == newData
@@ -130,21 +138,22 @@ class PathORAM {
             {
                 // Add each block to stash
                 var block := blocks[j];
-                stash := stash[block.addr := block.data];
+                if block.addr >= 0 {  // Ignore dummy blocks
+                    stash := stash[block.addr := block.data];
+                }
                 j := j + 1;
             }
             l := l + 1;
         }
 
         // TODO: need to prove this
-        assume {:axiom} addr in stash.Keys;
         assume {:axiom} forall a :: a in stash.Keys ==> 0 <= a < N;
         
         // Read block (line 6)
-        data := stash[addr];
+        data := if addr in stash then Some(stash[addr]) else None;
         // Write block if requested (lines 7-9)
-        if (op == "W") {
-            stash := stash[addr := newData];
+        if op == "W" {
+            stash := stash[addr := newData.value];
         }
 
         // Get path from root to leaf for every block in stash
@@ -192,6 +201,12 @@ class PathORAM {
             }
             // Remove selected blocks from stash (line 13)
             stash := stash - selectedAddrs;  // Dafny syntax is `map - (set of keys to remove)`
+            // Add dummy blocks if necessary to get exactly Z blocks
+            while |selectedBlocks| < Z
+            {
+                var newBlock := new Block(-1, "");
+                selectedBlocks := selectedBlocks + [newBlock];
+            }
             // Write selected blocks to tree (line 14)
             tree.WriteBucket(path[l], selectedBlocks);
             l := l - 1;

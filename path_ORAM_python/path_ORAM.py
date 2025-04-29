@@ -1,20 +1,25 @@
-from server import *
+from server import Block, Database
 import math
 import random
+import json
 from typing import Dict, List, Literal
 
 
 class PathORAM:
     MIN_BLOCKS = 2
 
-    def __init__(self, num_blocks: int, bucket_size: int):
+    def __init__(self, database_file_name: str, num_blocks: int, bucket_size: int, block_len: int):
         assert num_blocks >= self.MIN_BLOCKS
         assert bucket_size >= 1
 
+        # Name of file holding the database
+        self.database_file_name = database_file_name
         # Total number of blocks
         self.N = num_blocks
         # Bucket size (i.e., how many blocks in each tree node)
         self.Z = bucket_size
+        # Block size (i.e., how many bytes in each block's contents)
+        self.block_len = block_len
         # Height of the tree
         self.L = math.ceil(math.log2(self.N))
         # Number of leaves
@@ -23,11 +28,18 @@ class PathORAM:
         self.tree_size = 2 * self.num_leaves - 1
 
         # Database on server storing buckets in tree structure
-        self.tree = Database(self.tree_size, self.Z)
-        # Position map: block index -> leaf bucket index
+        # Initialized such that each bucket is filled with dummy blocks,
+        # and bucket indices go from 0 to tree_size-1
+        dummy_blocks_serialized = json.dumps([[-1, ' '*self.block_len] for _ in range(self.Z)])
+        empty_db = [(i, dummy_blocks_serialized) for i in range(self.tree_size)]
+        self.database = Database(self.database_file_name, empty_db)
+
+        # Position map: block address -> leaf bucket index
         self.pos_map: List[int] = [self.random_leaf() for _ in range(self.N)]
         # Temporary client storage for blocks (maps block address to block data)
         self.stash: Dict[int, str] = {}
+
+        random.seed(0)
 
     # Select the index of a leaf node uniformly at random
     def random_leaf(self) -> int:
@@ -49,7 +61,7 @@ class PathORAM:
         assert op == 'R' or op == 'W'
         assert 0 <= addr and addr < self.N
         if op == 'R':
-            assert isinstance(new_data, None)
+            assert new_data is None
         if op == 'W':
             assert isinstance(new_data, str)
 
@@ -64,7 +76,7 @@ class PathORAM:
 
         # Read all buckets in path into stash (lines 3-5)
         for bucket in path:
-            blocks = self.tree.read_bucket(bucket)
+            blocks = self.database.read_bucket(bucket)
             for block in blocks:
                 if block.addr >= 0:  # Ignore dummy blocks
                     self.stash[block.addr] = block.data
@@ -89,7 +101,7 @@ class PathORAM:
             # Select min(|S'|,Z) blocks from the set S' as defined in Figure 1
             # and remove them from the stash (lines 11-13)
             selected_blocks: List[Block] = []
-            for a, d in self.stash.items():
+            for a, d in self.stash.copy().items():
                 if path[l] == stash_paths[a][l]:  # Condition for being in S'
                     selected_blocks.append(Block(a, d))
                     del self.stash[a]
@@ -97,8 +109,8 @@ class PathORAM:
                         break
             # Add dummy blocks if necessary to get exactly Z blocks
             while len(selected_blocks) < self.Z:
-                selected_blocks.append(Block(-1, ""))
+                selected_blocks.append(Block(-1, ' '*self.block_len))
             # Write selected blocks to tree (line 14)
-            self.tree.write_bucket(path[l], selected_blocks)
+            self.database.write_bucket(path[l], selected_blocks)
 
         return data

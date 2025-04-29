@@ -1,3 +1,5 @@
+import sqlite3
+import json
 from typing import List, Tuple
 
 
@@ -9,28 +11,38 @@ class Block:
         self.data: str = data
 
 
-# A bucket containing bucket_size blocks
-class Bucket:
-    def __init__(self, bucket_size: int):
-        self.blocks: List[Block] = [Block(-1, "") for _ in range(bucket_size)]
-
-
-# The database held in the server,
-# composed of database_size buckets, each of which holds bucket_size blocks
+# The database held in the server
 class Database:
-    def __init__(self, database_size: int, bucket_size: int):
-        self.database_size = database_size
-        self.bucket_size = bucket_size
-        self.buckets: List[Bucket] = [Bucket(bucket_size) for _ in range(database_size)]
+    def __init__(self, file_name: str, initial_db: list[tuple[int, str]]):
+        self.file_name = file_name
         self.access_log: List[Tuple[str, int]] = []
+        conn = sqlite3.connect(self.file_name)
+        cursor = conn.cursor()
+        cursor.execute('DROP TABLE IF EXISTS db')
+        cursor.execute('CREATE TABLE db (key INTEGER PRIMARY KEY, value TEXT)')
+        cursor.executemany('INSERT INTO db (key, value) VALUES (?, ?)', initial_db)
+        conn.commit()
+        conn.close()
 
     def read_bucket(self, bucket: int) -> List[Block]:
         self.access_log.append(('R', bucket))
-        return self.buckets[bucket].blocks
+        conn = sqlite3.connect(self.file_name)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM db WHERE key = ?', (bucket,))
+        blocks_serialized = cursor.fetchone()[0]
+        blocks = [Block(int(block[0]), block[1]) for block in json.loads(blocks_serialized)]
+        conn.commit()
+        conn.close()
+        return blocks
 
     def write_bucket(self, bucket: int, blocks: List[Block]):
         self.access_log.append(('W', bucket))
-        self.buckets[bucket].blocks = blocks
+        blocks_serialized = json.dumps([[block.addr, block.data] for block in blocks])
+        conn = sqlite3.connect(self.file_name)
+        cursor = conn.cursor()
+        cursor.execute('INSERT OR REPLACE INTO db (key, value) VALUES (?, ?)', (bucket, blocks_serialized))
+        conn.commit()
+        conn.close()
 
     def write_access_log(self):
         print(self.access_log)

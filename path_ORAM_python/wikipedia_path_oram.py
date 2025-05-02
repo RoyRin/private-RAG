@@ -98,13 +98,13 @@ class WikipediaPathORAM:
     def write(self, title: str, contents: dict[str, str]):
         pass
         
-
-wikipedia_path_oram = WikipediaPathORAM(
-    pickle_file='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.pkl'
-).load_articles(
-    articles_directory='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/example_wiki',
-    database_file_name='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.db',
-    bucket_size=4,
-    block_len=4096
-)
-print(wikipedia_path_oram.read(title='Fenway Park'))
+if __name__ == '__main__':
+    wikipedia_path_oram = WikipediaPathORAM(
+        pickle_file='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.pkl'
+    ).load_articles(
+        articles_directory='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/example_wiki',
+        database_file_name='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.db',
+        bucket_size=4,
+        block_len=4096
+    )
+    print(wikipedia_path_oram.read(title='Fenway Park'))

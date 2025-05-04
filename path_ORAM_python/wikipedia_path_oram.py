@@ -15,7 +15,7 @@ class WikipediaPathORAM:
         try:
             with open(self.pickle_file, 'rb') as f:
                 self.__dict__.update(pickle.load(f).__dict__)
-            print(f'Loaded from {pickle_file}.')
+            print(f'Loaded Path ORAM from pickle: {pickle_file}.')
             self.loaded_from_pickle = True
         except FileNotFoundError:
             self.loaded_from_pickle = False
@@ -70,7 +70,7 @@ class WikipediaPathORAM:
         addr = 0  # Assign each block a unque address
         for article in iter_articles():
             title = json.loads(article)['title']
-            print(title)
+            print(f'Loading article into Path ORAM: {title}')
             self.title_to_addrs[title] = []
             # Place article contents into blocks
             for i in range(0, len(article), block_len):
@@ -84,6 +84,7 @@ class WikipediaPathORAM:
                 addr += 1
         
         self.save()
+        print('Done.')
 
         return self
 
@@ -94,17 +95,3 @@ class WikipediaPathORAM:
             article += self.path_oram.access('R', addr)
         self.save()
         return json.loads(article)
-
-    def write(self, title: str, contents: dict[str, str]):
-        pass
-        
-if __name__ == '__main__':
-    wikipedia_path_oram = WikipediaPathORAM(
-        pickle_file='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.pkl'
-    ).load_articles(
-        articles_directory='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/example_wiki',
-        database_file_name='C:/Users/denni/OneDrive/Desktop/Courses/CS 2540/Final Project/private-RAG/path_ORAM_python/wikipedia_path_oram.db',
-        bucket_size=4,
-        block_len=4096
-    )
-    print(wikipedia_path_oram.read(title='Fenway Park'))

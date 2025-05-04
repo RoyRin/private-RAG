@@ -1,4 +1,4 @@
-from server import Block, Database
+from oram_db import Block, Database
 import math
 import random
 import json
@@ -6,10 +6,8 @@ from typing import Dict, List, Literal
 
 
 class PathORAM:
-    MIN_BLOCKS = 2
-
     def __init__(self, database_file_name: str, num_blocks: int, bucket_size: int, block_len: int):
-        assert num_blocks >= self.MIN_BLOCKS
+        assert num_blocks >= 2
         assert bucket_size >= 1
 
         # Name of file holding the database

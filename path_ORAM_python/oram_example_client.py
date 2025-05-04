@@ -1,10 +1,9 @@
 import requests
 
-query = "Biology"
+query = "Fenway Park"
 
-response = requests.post("http://localhost:8080/rag",
+response = requests.post("http://localhost:8080/read",
                          json={"encrypted_query": query})
 
 print(response)
-for i, result in enumerate(response.json()["results"]):
-    print(f"{i+1}. {result}\n")
+print(response.json()["results"])

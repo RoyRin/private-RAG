@@ -94,4 +94,6 @@ class WikipediaPathORAM:
         for addr in addrs:
             article += self.path_oram.access('R', addr)
         self.save()
+        self.path_oram.database.write_access_log()
+        self.path_oram.database.clear_access_log()
         return json.loads(article)

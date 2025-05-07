@@ -1,7 +1,0 @@
-obj/                                  
-*.cs
-*.dll
-*.csproj
-*.pdb
-*.deps.json
-*.runtimeconfig.json

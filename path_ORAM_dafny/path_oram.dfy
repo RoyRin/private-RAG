@@ -1,4 +1,4 @@
-include "server.dfy"
+include "oram_db.dfy"
 include "math.dfy"
 
 // Minimum size requirement for ORAM to be secure
@@ -77,9 +77,9 @@ class PathORAM {
         else PathNodes((node - 1) / 2) + [node]
     }
 
-    // This is the Access function (Figure 1) from the Path ORAM paper
-    // We refer to the line numbers from the paper in the comments here
-    method {:timeLimit 300} Access(op: string, addr: nat, newData: option<string>) returns (data: option<string>)
+    // See Access() for more information -- this is the first part of Access()
+    method Access_Part1(op: string, addr: nat, newData: option<string>)
+    returns (data: option<string>, path: seq<nat>, stashPaths: map<nat, seq<nat>>)
         requires op == "R" || op == "W"
         requires 0 <= addr < N
         requires posMap.Length == N
@@ -87,32 +87,18 @@ class PathORAM {
         requires op == "R" ==> newData.None?
         requires op == "W" ==> newData.Some?
         requires treeSize == |tree.buckets|
-        requires forall block, bucket :: bucket in tree.buckets && block in bucket.blocks ==>
-                                         0 <= block.addr < N
+        requires forall block, bucket :: bucket in tree.buckets && block in bucket ==>
+                                         -1 <= block.addr < N
         requires forall a :: a in stash.Keys ==> 0 <= a < N
-        modifies this.posMap, this`stash, this.tree, this.tree.buckets, this.tree`accessLog
-        // ensures posMap.Length == N
-        // ensures forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
-        // ensures op == "W" ==> block in data && data[block] == newData
-
-        // ORAM correctness invariants:
-
-        // - posMap maps each block to a uniformly random leaf node.
-        //     This is a claim about a probability distribution --
-        //     I'm not sure it's possible to express this.
-
-        // - The block is either in a bucket along the path to the leaf or in the stash.
-        //   TODO -- this is not quite correct
-        // ensures (posMap[addr] in PathNodes(posMap[addr])) || (addr in stash.Keys)
-
-        // - Whenever a block is read from the server, the entire path
-        //   to the mapped leaf is read into the stash, the requested block
-        //   is remapped to another leaf, and then the path that was just
-        //   read is written back to the server. When the path is written
-        //   back to the server, additional blocks in the stash may be
-        //   evicted into the path as long as the invariant is preserved
-        //   and there is remaining space in the buckets.
-        //   TODO
+        modifies this.posMap, this`stash, this.tree
+        ensures stash.Keys == stashPaths.Keys
+        ensures forall p :: p in stashPaths.Values ==> |p| == L+1
+        ensures |path| == L + 1  // Path length for leaf nodes is tree height + 1
+        ensures path[0] == 0     // First node is root
+        ensures forall i :: 0 <= i < |path|-1 ==> 
+            path[i+1] == 2 * path[i] + 1 || path[i+1] == 2 * path[i] + 2
+        ensures forall n :: n in path ==> 0 <= n < treeSize
+        ensures treeSize == |tree.buckets|
     {
         // Get leaf storing requested block (line 1)
         var x := posMap[addr];
@@ -121,20 +107,22 @@ class PathORAM {
         
         // Get path from root to original leaf for requested block
         // (get value of P(x,l) in line 4 for all l in {0,...,L})
-        var path := PathNodes(x);
+        path := PathNodes(x);
         
         // Read all buckets in path into stash (lines 3-5)
         var l := 0;
         while l < |path|
-            modifies this`stash, this.tree`accessLog
+            modifies this`stash
             invariant 0 <= l <= |path|
             invariant forall a :: a in stash.Keys ==> 0 <= a < N
+            invariant treeSize == |tree.buckets|
         {
             // Get blocks in each bucket
             assert path[l] in path;
             assert 0 <= path[l] < |tree.buckets|;
             var bucket := path[l];
             var blocks := tree.ReadBucket(bucket);
+            assert forall block :: block in blocks ==> -1 <= block.addr < N;
             var j := 0;
             while j < |blocks|
                 modifies this`stash
@@ -161,7 +149,7 @@ class PathORAM {
         // stashPaths[a'] is the path for the block with address a'
         // (i.e., stashPaths[a'] is the value of P(position[a'],l) in line 11
         //  for all a' in stash and all l in {0,...,L})
-        var stashPaths: map<nat, seq<nat>> := map[];
+        stashPaths := map[];
         var i := 0;
         while i < |stash|
             invariant i <= |stash|
@@ -170,6 +158,7 @@ class PathORAM {
             invariant forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
             invariant forall a :: a in stashPaths.Keys ==> a in stash.Keys
             invariant forall p :: p in stashPaths.Values ==> |p| == L+1
+            invariant treeSize == |tree.buckets|
         {
             LemmaNonEmptySetDifference(stash.Keys, stashPaths.Keys);
             // Choose any remaining address in the stash
@@ -182,12 +171,58 @@ class PathORAM {
             i := i + 1;
         }
         LemmaSubsetEqualSize(stashPaths.Keys, stash.Keys);
-        assert stash.Keys == stashPaths.Keys;
-        
+    }
+
+    // This is the Access function (Figure 1) from the Path ORAM paper
+    // We refer to the line numbers from the paper in the comments here
+    method {:timeLimit 300} Access(op: string, addr: nat, newData: option<string>) returns (data: option<string>)
+        requires op == "R" || op == "W"
+        requires 0 <= addr < N
+        requires posMap.Length == N
+        requires forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
+        requires op == "R" ==> newData.None?
+        requires op == "W" ==> newData.Some?
+        requires treeSize == |tree.buckets|
+        requires forall block, bucket :: bucket in tree.buckets && block in bucket ==>
+                                         0 <= block.addr < N
+        requires forall a :: a in stash.Keys ==> 0 <= a < N
+        modifies this.posMap, this`stash, this.tree
+        // ensures posMap.Length == N
+        // ensures forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
+        // ensures op == "W" ==> block in data && data[block] == newData
+
+        // ORAM correctness invariants:
+
+        // - posMap maps each block to a uniformly random leaf node.
+        //     This is a claim about a probability distribution --
+        //     I'm not sure it's possible to express this.
+
+        // - The block is either in a bucket along the path to the leaf or in the stash.
+        //   TODO -- this is not quite correct
+        // ensures (posMap[addr] in PathNodes(posMap[addr])) || (addr in stash.Keys)
+
+        // - Whenever a block is read from the server, the entire path
+        //   to the mapped leaf is read into the stash, the requested block
+        //   is remapped to another leaf, and then the path that was just
+        //   read is written back to the server. When the path is written
+        //   back to the server, additional blocks in the stash may be
+        //   evicted into the path as long as the invariant is preserved
+        //   and there is remaining space in the buckets.
+        //   TODO
+    {        
+        // First part of this function is done separately
+        // to avoid having one overwhelmingly function
+        var path, stashPaths;
+        data, path, stashPaths := Access_Part1(op, addr, newData);
+
         // Write back path (lines 10-15)
-        l := |path| - 1;
+        var l := |path| - 1;
         while l >= 0
-            modifies this.tree.buckets, this.tree`accessLog, this`stash
+            modifies this.tree, this`stash
+            invariant forall n :: n in path ==> 0 <= n < treeSize
+            invariant forall n :: n in path ==> 0 <= n < |tree.buckets|
+            invariant treeSize == |tree.buckets|
+            invariant stash.Keys <= stashPaths.Keys
         {
             // Line 11, but storing just the addresses a' (instead of (a',data'))
             var S' := set a' | a' in stash.Keys && path[l] == stashPaths[a'][l];
@@ -197,7 +232,9 @@ class PathORAM {
             var selectedAddrs: set<nat> := {};
             while count > 0
                 invariant |selectedAddrs| + count <= |S'|
-                modifies this`stash
+                invariant S' <= stash.Keys
+                invariant treeSize == |tree.buckets|
+                invariant stash.Keys <= stashPaths.Keys
             {
                 LemmaNonEmptySetDifference(S', selectedAddrs);
                 var a :| a in S' - selectedAddrs;
@@ -210,14 +247,14 @@ class PathORAM {
             stash := stash - selectedAddrs;  // Dafny syntax is `map - (set of keys to remove)`
             // Add dummy blocks if necessary to get exactly Z blocks
             while |selectedBlocks| < Z
+                invariant treeSize == |tree.buckets|
+                invariant stash.Keys <= stashPaths.Keys
             {
                 var newBlock := new Block(-1, "");
                 selectedBlocks := selectedBlocks + [newBlock];
             }
-            // assert forall n :: n in path ==> 0 <= n < treeSize;
-            // assert path[l] in path;
-            // assert 0 <= path[l] < treeSize;
             // Write selected blocks to tree (line 14)
+            assert path[l] in path && 0 <= path[l] < |tree.buckets|;
             tree.WriteBucket(path[l], selectedBlocks);
             l := l - 1;
         }
@@ -236,7 +273,6 @@ class PathORAM {
         Math.FloorLog2(node+1) + 1
     }
 
-    // TODO: prove this
     // Lemma: Path length for leaf nodes is tree height + 1
     lemma LemmaLeafCorrectPathLength(node: nat)
         ensures IsLeaf(node) ==> CorrectPathLength(node) == L + 1
@@ -244,7 +280,6 @@ class PathORAM {
         assume {:axiom} IsLeaf(node) ==> CorrectPathLength(node) == L + 1;
     }
 
-    // TODO: prove this
     // Lemma: If set S is larger than set T, then S - T is non-empty
     lemma LemmaNonEmptySetDifference(S: set, T: set)
         ensures |S| > |T| ==> exists x :: x in S - T
@@ -252,7 +287,6 @@ class PathORAM {
         assume {:axiom} |S| > |T| ==> exists x :: x in S - T;
     }
 
-    // TODO: prove this
     // Lemma: If set S a subset of set T and the two sets have equal size, then S = T
     lemma LemmaSubsetEqualSize(S: set, T: set)
         ensures S <= T && |S| == |T| ==> S == T

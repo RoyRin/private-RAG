@@ -1,16 +1,4 @@
-class Block {
-    var addr: int
-    var data: string
-    
-    constructor(addr: int, data: string)
-        requires addr >= -1
-        ensures this.addr == addr
-        ensures this.data == data
-    {
-        this.addr := addr;
-        this.data := data;
-    }
-}
+datatype Block = Block(addr: int, data: string)
 
 
 class Database {
@@ -38,8 +26,7 @@ class Database {
                 invariant |buckets| == i
                 invariant forall bucket :: bucket in buckets ==> |bucket| == bucketSize
             {
-                var block := new Block(-1, "");
-                bucket := bucket + [block];
+                bucket := bucket + [Block(-1, "")];
                 j := j + 1;
             }
             buckets := buckets + [bucket];

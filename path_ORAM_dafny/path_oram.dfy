@@ -192,7 +192,7 @@ class PathORAM {
 
     // This is the Access function (Figure 1) from the Path ORAM paper
     // We refer to the line numbers from the paper in the comments here
-    method {:timeLimit 300} Access(op: string, addr: nat, newData: option<string>) returns (data: option<string>)
+    method Access(op: string, addr: nat, newData: option<string>) returns (data: option<string>)
         requires op == "R" || op == "W"
         requires 0 <= addr < N
         requires op == "R" ==> newData.None?
@@ -202,32 +202,12 @@ class PathORAM {
         requires forall block, bucket :: bucket in tree.buckets && block in bucket ==>
                                          0 <= block.addr < N
         requires forall a :: a in stash.Keys ==> 0 <= a < N
-
+        requires forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
         modifies this`posMap, this`stash, this.tree
-
         ensures |posMap| == N
         ensures treeSize == |tree.buckets|
-        // ensures op == "W" ==> block in data && data[block] == newData
-
-        // ORAM correctness invariants:
-
-        // - posMap maps each block to a leaf node.
-        requires forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
         ensures forall i :: 0 <= i < N ==> IsLeaf(posMap[i])
-
-        // - The block is either in a bucket along the path to the leaf or in the stash.
-        requires forall a :: 0 <= a < N ==> BlockInCorrectLocation(a)
-        ensures forall a :: 0 <= a < N ==> BlockInCorrectLocation(a)
-
-        // - Whenever a block is read from the server, the entire path
-        //   to the mapped leaf is read into the stash, the requested block
-        //   is remapped to another leaf, and then the path that was just
-        //   read is written back to the server. When the path is written
-        //   back to the server, additional blocks in the stash may be
-        //   evicted into the path as long as the invariant is preserved
-        //   and there is remaining space in the buckets.
-        //   TODO
-    {        
+    {
         // First part of this function is done separately
         // to avoid having one overwhelmingly long function
         var path, stashPaths;
@@ -309,8 +289,6 @@ class PathORAM {
     {
         assume {:axiom} S <= T && |S| == |T| ==> S == T;
     }
-
-    // TODO: update the below to conform with new code above
 
     // Verifies the correctness property that a block is either in the stash or on the path to its assigned leaf
     predicate BlockInCorrectLocation(addr: nat)

@@ -83,6 +83,7 @@ class WikipediaPathORAM:
                 self.path_oram.access('W', addr, block_contents)
                 addr += 1
         
+        self.path_oram.database.clear_access_log()
         self.save()
         print('Done.')
 

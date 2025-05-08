@@ -19,7 +19,7 @@ class PathORAM:
         # Block size (i.e., how many bytes in each block's contents)
         self.block_len = block_len
         # Height of the tree
-        self.L = math.ceil(math.log2(self.N))
+        self.L = math.ceil(math.log2(self.N)) - 1
         # Number of leaves
         self.num_leaves = 2 ** self.L 
         # Total size of the tree

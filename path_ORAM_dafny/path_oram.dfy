@@ -24,7 +24,6 @@ class PathORAM {
         requires bucketSize >= 1
         ensures N == numBlocks
         ensures fresh(tree)
-        ensures L >= 1  // Tree has at least one level
         ensures numLeaves >= 1
         ensures treeSize >= 1
         ensures |posMap| == N
@@ -36,7 +35,7 @@ class PathORAM {
 
         new;  // (See "Two-phase constructors" in the Dafny documentation for explanation)
 
-        L := Math.CeilLog2(N);
+        L := Math.CeilLog2(N) - 1;
         numLeaves := Math.Pow2(L);
         treeSize := 2 * numLeaves - 1;
         
@@ -50,7 +49,6 @@ class PathORAM {
             invariant forall j :: 0 <= j < i ==> IsLeaf(posMap[j])
             invariant N == numBlocks
             invariant fresh(tree)
-            invariant L >= 1
             invariant numLeaves >= 1
             invariant treeSize >= 1
         {

@@ -1,3 +1,6 @@
 [submodule "Dafny-VMC"]
 	path = Dafny-VMC
 	url = git@github.com:dafny-lang/Dafny-VMC.git
+[submodule "wiki-rag"]
+	path = wiki-rag
+	url = git@github.com:RoyRin/wiki-rag.git
